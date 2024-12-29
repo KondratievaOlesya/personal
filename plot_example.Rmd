@@ -1,0 +1,71 @@
+# Introduction
+
+This R Markdown document demonstrates how to create a bar plot to visualize category grouped by MSI_phenotype. Replace the example data with your dataset to create custom plots.
+
+```{r define-colors}
+# Define category  colors to be used in the plot
+sig_colors <- c("#7AA6DCFF", "#0073C2FF", "#FFA200", "#A52206", "#3B3B3B", "#3B3B3BFF")
+```
+
+## Example Dataset
+
+Here is an example dataset that mimics the structure of your data. Ensure your dataset has the following columns:
+- `Tumor_Sample_Barcode`: Unique identifier for each sample
+- `MSI_phenotype`: Grouping variable (e.g., MSI-H, MSS/TMB-H, MSS/TMB-L)
+- `category `: Category. For example (T cell, B cell..)
+- `value`: Numeric value for each category (for example amount of cells) 
+
+```{r example-data}
+# Create example dataframe
+example_data <- data.frame(
+  Tumor_Sample_Barcode = rep(paste0("Sample", 1:10), each = 3),
+  MSI_phenotype = rep(c("MSI-H", "MSS/TMB-H", "MSS/TMB-L"), times = c(2, 2, 2)),
+  category  = rep(c("Sig1", "Sig2", "Sig3"), 10),
+  value = runif(30, 0, 1)
+)
+
+# Preview the example data
+head(example_data)
+```
+
+## Data Preparation
+
+```{r data-preparation}
+# Prepare data
+prepared_data <- example_data %>%
+  dplyr::ungroup()
+
+# Convert Tumor_Sample_Barcode to a factor
+prepared_data$Tumor_Sample_Barcode <- factor(
+  prepared_data$Tumor_Sample_Barcode,
+  levels = unique(prepared_data$Tumor_Sample_Barcode)
+)
+```
+
+## Plotting the Data
+```{r create-plot}
+# Create the plot
+p <- ggplot2::ggplot(prepared_data, ggplot2::aes(x = Tumor_Sample_Barcode, y = value, fill = category )) +
+  ggplot2::geom_bar(stat = "identity", position = "stack") +
+  ggplot2::theme_minimal() +
+  ggplot2::labs(
+    y = "Exposure",
+    fill = "category ",
+    x = ""
+  ) +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_blank(),  # Remove x-axis text
+    axis.ticks.x = ggplot2::element_blank(),  # Remove x-axis ticks
+    legend.position = "top",  # Place legend on top
+    text = ggplot2::element_text(size = 24),  # Increase all text size
+    axis.title = ggplot2::element_text(size = 24),  # Increase axis titles size
+    legend.title = ggplot2::element_text(size = 24),  # Increase legend title size
+    legend.text = ggplot2::element_text(size = 24),  # Increase legend text size
+    strip.text = ggplot2::element_text(size = 24, angle = 0, hjust = 0.5)  # Rotate and size facet labels
+  ) +
+  ggplot2::scale_fill_manual(values = sig_colors) +
+  ggplot2::facet_grid(. ~ MSI_phenotype, scales = "free_x", space = "free_x")  # Free x-axis space based on number of samples
+
+# Display the plot
+print(p)
+```
