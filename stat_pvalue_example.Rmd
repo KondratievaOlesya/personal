@@ -1,0 +1,180 @@
+---
+title: "Using ggpubr::stat_pvalue_manual()"
+output: html_document
+date: "2025-01-11"
+---
+
+```{r setup, include=FALSE}
+library(dplyr) # dplyr is required for %>%
+```
+
+## Introduction
+
+This document demonstrates the use of `ggpubr::stat_pvalue_manual()` for adding p-values to boxplots. First, we show how to add p-values to a single boxplot, and then how to use Cell_Types with statistical annotations.
+
+---
+
+## Example Data
+```{r create-data}
+set.seed(123)
+mock_data <- data.frame(
+  MSI_phenotype = rep(c("MSS/TMB-H", "MSS/TMB-L", "MSI-H"), each = 40),
+  Value = c(
+    rnorm(10, mean = 10, sd = 1),
+    rnorm(100, mean = 2, sd = 1),
+    rnorm(10, mean = 15, sd = 1)  
+  )
+)
+mock_data$Cell_Type <- rep(c("CD8", "CD4"), each = 60)
+mock_data
+```
+Order MSI_phenotype in specific order
+```{r}
+mock_data <- mock_data %>%
+  mutate(MSI_phenotype = factor(
+    MSI_phenotype,
+    levels = c("MSI-H", "MSS/TMB-H", "MSS/TMB-L"),
+    ordered = TRUE
+  ))
+```
+
+---
+
+## Adding p-values to a single plot
+
+We perform an ANOVA followed by Tukey's HSD test to compute p-values for the differences between MSI_phenotypes. These are then added to a boxplot.
+```{r}
+cd8_mock_data <- mock_data # Lets say that this data have only 1 cell
+```
+
+```{r single-plot}
+# Perform ANOVA and Tukey's HSD test
+stat.test <- cd8_mock_data %>%
+  aov(data = ., Value ~ MSI_phenotype) %>%           # Perform ANOVA to test group differences
+  rstatix::tukey_hsd() %>%                           # Perform Tukey's HSD for pairwise comparisons
+  rstatix::adjust_pvalue(method = "bonferroni") %>%  # Adjust p-values using the Bonferroni correction method
+  rstatix::add_significance("p.adj")                 # Add significance levels based on adjusted p-values
+
+# Add y positions for plotting
+stat.test <- as_tibble(stat.test) %>%
+  rstatix::add_y_position(                          # Calculate y-axis positions for p-value brackets
+    fun = "max",                                    # Place brackets at the maximum value of the groups
+    scales = "free",                                # Allow scales to vary if used in a faceted plot
+    formula = Value ~ MSI_phenotype,                # Define the relationship being tested
+    data = mock_data[, c("Value", "MSI_phenotype")] # Use the corresponding data columns
+  )
+
+# Add an empty column for compatibility with ggpubr
+# sggpubr requires this column to avoid an error during plotting
+stat.test$MSI_phenotype <- ""
+```
+
+Add p-value to the plot
+```{r}
+# Plot
+p <-
+  ggplot2::ggplot(cd8_mock_data,
+                  ggplot2::aes(x = MSI_phenotype, y = Value, fill = MSI_phenotype)) +
+  ggplot2::geom_boxplot(alpha = 0.7) +  # Add boxplot
+  ggplot2::geom_jitter(
+    position = ggplot2::position_jitterdodge(dodge.width = 1),
+    size = 2,
+    alpha = 0.5,
+    shape = 21,
+    color = "black"
+  ) +  # Add jittered points
+  ggplot2::labs(fill = "MSI/TMB", x = "", y = "Count") +
+  ggplot2::theme_classic()  +
+  ggpubr::stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01, size = 5, bracket.size = 1)
+
+# Display the plot
+print(p)
+```
+
+## Adding p-values in Cell_Types
+
+Here, we compute separate ANOVA tests for each feature (Cell_Type) and annotate the p-values in each panel.
+
+```{r Cell_Type-plot}
+# Perform ANOVA and Tukey's HSD test for each Cell_Type
+res.stat <- data.frame()  # Initialize an empty dataframe to store results
+
+# Loop through each unique Cell_Type to calculate p-values
+for (group in unique(mock_data$Cell_Type)) {
+  # Subset data for the current Cell_Type
+  tmp <- mock_data[mock_data$Cell_Type == group,]
+  
+  # Perform statistical tests
+  tmp.stat <- tmp %>%
+    aov(data = ., Value ~ MSI_phenotype) %>%            # Perform ANOVA to check for differences between groups
+    rstatix::tukey_hsd() %>%                           # Perform Tukey's HSD for pairwise comparisons
+    rstatix::adjust_pvalue(method = "bonferroni") %>%  # Adjust p-values using the Bonferroni method
+    rstatix::add_significance("p.adj")                # Add significance labels based on adjusted p-values
+  
+  # Add the current Cell_Type to the result for tracking
+  tmp.stat$Cell_Type <- group
+  
+  # Add xy positions for plotting brackets
+  tmp.stat <- as_tibble(tmp.stat) %>%
+    rstatix::add_xy_position(
+      x = "MSI_phenotype",
+      fun = "max",                     # Position brackets at the maximum value in the plot
+      scales = "free",                 # Allow each facet to scale independently
+      formula = Value ~ MSI_phenotype, # Formula for the relationship being tested
+      data = tmp[, c("Value", "MSI_phenotype")]
+    )
+  
+  # Append the results to the main dataframe
+  if (nrow(res.stat) == 0) {
+    res.stat <- tmp.stat
+  } else {
+    res.stat <- rbind(res.stat, tmp.stat)
+  }
+}
+
+# Convert the results to a tibble for use in ggpubr::stat_pvalue_manual
+stat.test <- as_tibble(res.stat)
+```
+
+```{r}
+# Plot with statistical annotations
+p <- ggpubr::ggboxplot(
+  mock_data,
+  x = "MSI_phenotype",
+  y = "Value",
+  fill = "MSI_phenotype",
+  xlab = FALSE,
+  ylab = FALSE,
+  add = "jitter",  # Add jittered points to show individual data points
+  add.params = list(
+    shape = 1,  # Circle shape for points
+    size = 1,   # Size of points
+    alpha = 0.5 # Transparency
+  )
+) +
+  ggplot2::labs(fill = "MSI/TMB", x = "", y = "") +
+  ggplot2::facet_wrap(~ Cell_Type, scale = "free") +  # Create separate facets for each Cell_Type
+  ggpubr::stat_pvalue_manual(
+    stat.test,                     # Use the calculated statistics
+    label = "p.adj.signif",        # Label brackets with significance levels (adjusted p-values)
+    hide.ns = TRUE,                # Hide non-significant comparisons
+    tip.length = 0.01,             # Adjust tip length for brackets
+    size = 5,                      # Font size for labels
+    bracket.size = 1               # Line thickness for brackets
+  ) +
+  ggplot2::theme_classic() +
+  ggpubr::font("xy.text", size = 15) +
+  ggplot2::theme(
+    strip.text.x = ggplot2::element_text(size = 20),  # Adjust facet label font size
+    axis.text.x = ggplot2::element_blank(),           # Remove x-axis text
+    axis.ticks.x = ggplot2::element_blank(),          # Remove x-axis ticks
+    legend.position = "top",                          # Place legend on top
+    legend.title = ggplot2::element_text(size = 20),  # Adjust legend title font size
+    legend.text = ggplot2::element_text(size = 18)    # Adjust legend text font size
+  )
+
+# Display the plot
+p
+
+```
+
